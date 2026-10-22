@@ -1,5 +1,6 @@
 // tui/src/main.rs
 use std::io::{self, stdout};
+use std::time::{Duration, Instant};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -162,9 +163,18 @@ async fn main() -> io::Result<()> {
     // 2. Instantiate application core state
     let mut app = App::new();
     let mut should_run = true;
+    let mut cursor_visible = true;
+    let mut last_cursor_blink = Instant::now();
+    let blink_duration = Duration::from_millis(500);
 
     // 3. Execution UI loop
     while should_run {
+        // Blink cursor
+        if last_cursor_blink.elapsed() >= blink_duration {
+            cursor_visible = !cursor_visible;
+            last_cursor_blink = Instant::now();
+        }
+
         terminal.draw(|frame| {
             // Split terminal screen into a large History display block and an Input bar
             let chunks = Layout::default()
@@ -206,17 +216,22 @@ async fn main() -> io::Result<()> {
                 .style(Style::default().fg(Color::Rgb(187, 154, 247)));
             frame.render_widget(input_widget, chunks[1]);
 
-            // Draw a block cursor at the current cursor position
-            let cursor_x = chunks[1].x + 1 + app.cursor as u16;
-            let cursor_y = chunks[1].y + 1;
-            if cursor_x < chunks[1].x + chunks[1].width - 1 {
-                frame.set_cursor_position((cursor_x, cursor_y));
+            // Draw a blinking block cursor at the current cursor position
+            if cursor_visible {
+                let cursor_x = chunks[1].x + 1 + app.cursor as u16;
+                let cursor_y = chunks[1].y + 1;
+                if cursor_x < chunks[1].x + chunks[1].width - 1 {
+                    frame.set_cursor_position((cursor_x, cursor_y));
+                }
             }
         })?;
 
         // 4. Handle standard keyboard event vectors
         if event::poll(std::time::Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
+                // Reset cursor blink on any key press
+                cursor_visible = true;
+                last_cursor_blink = Instant::now();
                 // Prevent duplicate trigger fires on Windows systems
                 if key.kind == KeyEventKind::Press {
                     match key.code {
