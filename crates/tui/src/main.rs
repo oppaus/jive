@@ -19,6 +19,8 @@ struct App {
     input_buffer: String,
     cursor: usize,
     history: Vec<String>,
+    command_history: Vec<String>,
+    history_index: Option<usize>,
     j_engine: JEngine,
 }
 
@@ -28,6 +30,8 @@ impl App {
             input_buffer: String::new(),
             cursor: 0,
             history: vec!["Welcome to the J Language TUI Interface!".to_string(), "Type a J expression and press Enter.".to_string()],
+            command_history: Vec::new(),
+            history_index: None,
             j_engine: JEngine::new(),
         }
     }
@@ -55,6 +59,7 @@ impl App {
     fn insert_char(&mut self, c: char) {
         self.input_buffer.insert(self.cursor, c);
         self.cursor += c.len_utf8();
+        self.history_index = None;
     }
 
     fn backspace(&mut self) {
@@ -64,21 +69,75 @@ impl App {
         // Remove character before cursor
         self.cursor -= 1;
         self.input_buffer.remove(self.cursor);
+        self.history_index = None;
     }
 
     fn delete_forward(&mut self) {
         if self.cursor < self.input_buffer.len() {
             self.input_buffer.remove(self.cursor);
+            self.history_index = None;
         }
     }
 
     fn kill_to_beginning(&mut self) {
         self.input_buffer.drain(0..self.cursor);
         self.cursor = 0;
+        self.history_index = None;
     }
 
     fn kill_to_end(&mut self) {
         self.input_buffer.truncate(self.cursor);
+        self.history_index = None;
+    }
+
+    fn history_previous(&mut self) {
+        if self.command_history.is_empty() {
+            return;
+        }
+        match self.history_index {
+            None => {
+                self.history_index = Some(self.command_history.len() - 1);
+                self.input_buffer = self.command_history[self.history_index.unwrap()].clone();
+                self.cursor = self.input_buffer.len();
+            }
+            Some(i) if i > 0 => {
+                self.history_index = Some(i - 1);
+                self.input_buffer = self.command_history[self.history_index.unwrap()].clone();
+                self.cursor = self.input_buffer.len();
+            }
+            _ => {}
+        }
+    }
+
+    fn history_next(&mut self) {
+        match self.history_index {
+            Some(i) if i + 1 < self.command_history.len() => {
+                self.history_index = Some(i + 1);
+                self.input_buffer = self.command_history[self.history_index.unwrap()].clone();
+                self.cursor = self.input_buffer.len();
+            }
+            Some(_) => {
+                self.history_index = None;
+                self.input_buffer.clear();
+                self.cursor = 0;
+            }
+            None => {}
+        }
+    }
+
+    fn reverse_search(&mut self, pattern: &str) {
+        if pattern.is_empty() {
+            return;
+        }
+        // Search backwards through command history
+        for (i, cmd) in self.command_history.iter().enumerate().rev() {
+            if cmd.contains(pattern) {
+                self.history_index = Some(i);
+                self.input_buffer = cmd.clone();
+                self.cursor = self.input_buffer.len();
+                return;
+            }
+        }
     }
 }
 
@@ -136,6 +195,12 @@ async fn main() -> io::Result<()> {
                         KeyCode::Esc => {
                             should_run = false;
                         }
+                        KeyCode::Up => {
+                            app.history_previous();
+                        }
+                        KeyCode::Down => {
+                            app.history_next();
+                        }
                         KeyCode::Left => {
                             app.move_cursor_left();
                         }
@@ -158,6 +223,10 @@ async fn main() -> io::Result<()> {
                                     'e' | 'E' => app.move_cursor_end(),
                                     'k' | 'K' => app.kill_to_end(),
                                     'u' | 'U' => app.kill_to_beginning(),
+                                    'r' | 'R' => {
+                                        // Simple reverse search: use current buffer as search pattern
+                                        app.reverse_search(&app.input_buffer.clone());
+                                    }
                                     _ => {}
                                 }
                             } else {
@@ -171,6 +240,10 @@ async fn main() -> io::Result<()> {
                             if !app.input_buffer.trim().is_empty() {
                                 let command = app.input_buffer.clone();
                                 app.history.push(format!("   {}", command));
+                                // Add to command history if different from last
+                                if app.command_history.last().map(|x| x.as_str()) != Some(command.as_str()) {
+                                    app.command_history.push(command.clone());
+                                }
                                 
                                 // Direct calculation invocation via our lib FFI engine.
                                 // J's own output is captured and returned here.
@@ -190,9 +263,11 @@ async fn main() -> io::Result<()> {
                                 }
                                 app.input_buffer.clear();
                                 app.cursor = 0;
+                                app.history_index = None;
                             } else if !app.input_buffer.is_empty() {
                                 app.input_buffer.clear();
                                 app.cursor = 0;
+                                app.history_index = None;
                             }
                         }
                         _ => {}
