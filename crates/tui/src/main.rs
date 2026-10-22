@@ -9,16 +9,24 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
 use lib::JEngine;
 
+#[derive(Clone, Debug)]
+enum HistoryEntry {
+    Input(String),
+    Output(String),
+    Info(String),
+}
+
 /// Represents our application state machine
 struct App {
     input_buffer: String,
     cursor: usize,
-    history: Vec<String>,
+    history: Vec<HistoryEntry>,
     command_history: Vec<String>,
     history_index: Option<usize>,
     j_engine: JEngine,
@@ -29,7 +37,10 @@ impl App {
         Self {
             input_buffer: String::new(),
             cursor: 0,
-            history: vec!["Welcome to the J Language TUI Interface!".to_string(), "Type a J expression and press Enter.".to_string()],
+            history: vec![
+                HistoryEntry::Info("Welcome to the J Language TUI Interface!".to_string()),
+                HistoryEntry::Info("Type a J expression and press Enter.".to_string()),
+            ],
             command_history: Vec::new(),
             history_index: None,
             j_engine: JEngine::new(),
@@ -154,7 +165,6 @@ async fn main() -> io::Result<()> {
 
     // 3. Execution UI loop
     while should_run {
-        // Draw layout
         terminal.draw(|frame| {
             // Split terminal screen into a large History display block and an Input bar
             let chunks = Layout::default()
@@ -165,9 +175,27 @@ async fn main() -> io::Result<()> {
                 ])
                 .split(frame.area());
 
-            // Build history string component
-            let history_text = app.history.join("\n");
-            let history_widget = Paragraph::new(history_text)
+            // Build history with Tokyo Night colors
+            let mut lines: Vec<Line> = Vec::new();
+            for entry in &app.history {
+                match entry {
+                    HistoryEntry::Input(cmd) => {
+                        // Input in same color as current input, prefixed with green '=>'
+                        lines.push(Line::from(vec![
+                            Span::styled("=> ", Style::default().fg(Color::Rgb(158, 206, 106))), // green
+                            Span::styled(cmd.clone(), Style::default().fg(Color::Rgb(187, 154, 247))), // purple
+                        ]));
+                    }
+                    HistoryEntry::Output(out) => {
+                        // Output keeps current color style for now
+                        lines.push(Line::from(Span::styled(format!("   {}", out), Style::default())));
+                    }
+                    HistoryEntry::Info(info) => {
+                        lines.push(Line::from(Span::styled(info.clone(), Style::default().fg(Color::Rgb(169, 177, 214)))));
+                    }
+                }
+            }
+            let history_widget = Paragraph::new(lines)
                 .block(Block::default().title(" J REPL History ").borders(Borders::ALL))
                 .wrap(Wrap { trim: false });
             frame.render_widget(history_widget, chunks[0]);
@@ -175,7 +203,7 @@ async fn main() -> io::Result<()> {
             // Build active input block with a block cursor
             let input_widget = Paragraph::new(app.input_buffer.as_str())
                 .block(Block::default().title(" Command Input ").borders(Borders::ALL))
-                .style(Style::default().fg(Color::Yellow));
+                .style(Style::default().fg(Color::Rgb(187, 154, 247)));
             frame.render_widget(input_widget, chunks[1]);
 
             // Draw a block cursor at the current cursor position
@@ -239,7 +267,7 @@ async fn main() -> io::Result<()> {
                         KeyCode::Enter => {
                             if !app.input_buffer.trim().is_empty() {
                                 let command = app.input_buffer.clone();
-                                app.history.push(format!("   {}", command));
+                                app.history.push(HistoryEntry::Input(command.clone()));
                                 // Add to command history if different from last
                                 if app.command_history.last().map(|x| x.as_str()) != Some(command.as_str()) {
                                     app.command_history.push(command.clone());
@@ -253,12 +281,12 @@ async fn main() -> io::Result<()> {
                                             // Silent commands (e.g. assignments) print nothing.
                                         } else {
                                             for line in output.lines() {
-                                                app.history.push(format!("   {}", line));
+                                                app.history.push(HistoryEntry::Output(line.to_string()));
                                             }
                                         }
                                     }
                                     Err(err) => {
-                                        app.history.push(format!("❌ Error passing data to FFI: {}", err));
+                                        app.history.push(HistoryEntry::Output(format!("❌ Error passing data to FFI: {}", err)));
                                     }
                                 }
                                 app.input_buffer.clear();
