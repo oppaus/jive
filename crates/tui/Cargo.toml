@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 # Standard TUI core and shell control
 ratatui = "0.30.2"
+crossterm = "0.29.0"
 
 # Internal Workspace dependency mapping
 lib = { path = "../lib" }

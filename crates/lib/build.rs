@@ -1,7 +1,7 @@
 // libj-sys/build.rs
 fn main() {
     // TODO: Not portable
-    let j_bin_path = "/Users/jamesdrake/GitHub/jsource/bin/darwin/j64arm"
+    let j_bin_path = "/Users/jamesdrake/GitHub/jsource/bin/darwin/j64arm";
 
     // Replace this path with the exact folder where your compiled libj file lives
     println!("cargo:rustc-link-search=native={}", j_bin_path);
