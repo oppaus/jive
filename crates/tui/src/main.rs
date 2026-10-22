@@ -89,10 +89,17 @@ async fn main() -> io::Result<()> {
                                 let command = app.input_buffer.clone();
                                 app.history.push(format!("   {}", command));
                                 
-                                // Direct calculation invocation via our lib FFI engine
+                                // Direct calculation invocation via our lib FFI engine.
+                                // J's own output is captured and returned here.
                                 match app.j_engine.eval(&command) {
-                                    Ok(code) => {
-                                        app.history.push(format!("   [JEngine Return Code: {}]", code));
+                                    Ok(output) => {
+                                        if output.trim().is_empty() {
+                                            // Silent commands (e.g. assignments) print nothing.
+                                        } else {
+                                            for line in output.lines() {
+                                                app.history.push(format!("   {}", line));
+                                            }
+                                        }
                                     }
                                     Err(err) => {
                                         app.history.push(format!("❌ Error passing data to FFI: {}", err));
