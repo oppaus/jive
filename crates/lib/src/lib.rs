@@ -102,6 +102,12 @@ impl JEngine {
     }
 }
 
+impl Default for JEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for JEngine {
     fn drop(&mut self) {
         unsafe {

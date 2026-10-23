@@ -5,11 +5,15 @@ edition = "2024"
 
 [dependencies]
 # Standard TUI core and shell control
-ratatui = "0.30.2"
+ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
 crossterm = "0.29.0"
 
 # Internal Workspace dependency mapping
 lib = { path = "../lib" }
+help = { path = "../help" }
+
+# Width-aware cursor positioning for the command line
+unicode-width = "0.2"
 
 # Asynchronous background loop runner for the J REPL pipe
 tokio = { version = "1.0", features = ["full"] }

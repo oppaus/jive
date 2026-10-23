@@ -44,7 +44,7 @@ alongside graphical plots using the Kitty/Sixel protocols via the
 
 ## Context Context Rules
 
-1. When generating or auditing FFI bindings in `libj-sys`, the agent should
+1. When generating or auditing FFI bindings in `lib`, the agent should
    inspect the internal C headers inside the local `jsource` directory rather
    than assuming API signatures.
 2. Do not commit or modify files within the external `jsource` directory.
