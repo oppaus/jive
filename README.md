@@ -13,6 +13,9 @@ A modern terminal user interface (TUI) for the [J programming language](https://
 - **Command History** - Navigate previous inputs with `↑`/`↓`, or use reverse search (`Ctrl+R`).
 - **Tokyo Night Theme** - Clean, readable syntax highlighting optimized for the terminal.
 
+<img width="1293" height="761" alt="jive-ss" src="https://github.com/user-attachments/assets/3f5d273e-bd2f-4353-bc2d-e6276f860d20" />
+
+
 ## Requirements
 
 - [Rust](https://rustup.rs/) (2024 edition)
