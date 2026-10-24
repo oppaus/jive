@@ -16,7 +16,8 @@ const GREEN: Color = Color::Rgb(158, 206, 106);
 const BLUE: Color = Color::Rgb(122, 162, 247);
 const CYAN: Color = Color::Rgb(125, 207, 255);
 const ORANGE: Color = Color::Rgb(255, 158, 100);
-const RED: Color = Color::Rgb(247, 118, 142);
+const WATERMELON: Color = Color::Rgb(255, 107, 107);
+const RED: Color = WATERMELON;
 const GRAY: Color = Color::Rgb(169, 177, 214);
 const FG: Color = Color::Rgb(192, 202, 245);
 const DIM: Color = Color::Rgb(86, 95, 137);
@@ -196,6 +197,47 @@ fn help_lines(view: &HelpView, example_index: usize) -> Vec<Line<'static>> {
     }
     lines.push(Line::from(""));
 
+    let using_array_examples = !view.examples.is_empty();
+    let total_examples = if using_array_examples { view.examples.len() } else { view.block_code_count };
+    let selected = if total_examples == 0 { usize::MAX } else { example_index.min(total_examples.saturating_sub(1)) };
+
+    // For array examples, find which block contains the selected example
+    let mut example_positions: Vec<(usize, usize)> = Vec::new(); // (block_index, line_offset_in_block)
+    if using_array_examples {
+        for example in view.examples.iter().take(total_examples) {
+            let ex_trim = example.trim();
+            let mut block_idx = 0;
+            let mut found_pos: Option<(usize, usize)> = None;
+            for block in &view.blocks {
+                if let HelpBlock::Code { text } = block {
+                    if !ex_trim.is_empty() {
+                        for (line_idx, line) in text.lines().enumerate() {
+                            let line_trim = line.trim();
+                            if line_trim.is_empty() { continue; }
+                            if line_trim.starts_with('+') || line_trim.starts_with('|') { continue; } // skip table
+                            if line_trim == ex_trim {
+                                found_pos = Some((block_idx, line_idx));
+                                break;
+                            }
+                            if ex_trim.contains(line_trim) && line_trim.len() > 3 {
+                                found_pos = Some((block_idx, line_idx));
+                                break;
+                            }
+                            if line_trim.contains(ex_trim) && ex_trim.len() > 3 {
+                                found_pos = Some((block_idx, line_idx));
+                                break;
+                            }
+                        }
+                    }
+                    if found_pos.is_some() { break; }
+                    block_idx += 1;
+                }
+            }
+            example_positions.push(found_pos.unwrap_or((0, 0)));
+        }
+    }
+
+    let mut code_block_idx: usize = 0;
     for block in &view.blocks {
         match block {
             HelpBlock::Heading { level, spans } => {
@@ -215,12 +257,63 @@ fn help_lines(view: &HelpView, example_index: usize) -> Vec<Line<'static>> {
             }
             HelpBlock::Code { text } => {
                 push_blank(&mut lines);
-                for line in text.lines() {
+                let is_selected_block = if using_array_examples {
+                    if selected < example_positions.len() {
+                        example_positions[selected].0 == code_block_idx
+                    } else {
+                        false
+                    }
+                } else {
+                    code_block_idx == selected
+                };
+                let selected_line_in_block = if using_array_examples && is_selected_block && selected < example_positions.len() {
+                    Some(example_positions[selected].1)
+                } else {
+                    None
+                };
+                if is_selected_block {
+                    lines.push(Line::from(vec![
+                        Span::styled("▸ ", Style::default().fg(WATERMELON).add_modifier(Modifier::BOLD)),
+                        Span::styled("Example", Style::default().fg(ORANGE).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            format!(" {}/{}", selected + 1, total_examples),
+                            Style::default().fg(DIM),
+                        ),
+                    ]));
+                }
+                for (li, line) in text.lines().enumerate() {
+                    let is_selected_line = selected_line_in_block == Some(li);
+                    let style = if is_selected_block && (selected_line_in_block.is_none() || is_selected_line) {
+                        if is_selected_line || selected_line_in_block.is_none() {
+                            Style::default()
+                                .fg(GREEN)
+                                .add_modifier(Modifier::BOLD)
+                                .bg(Color::Rgb(40, 42, 54))
+                        } else {
+                            Style::default().fg(GREEN)
+                        }
+                    } else if is_selected_block {
+                        Style::default().fg(GREEN)
+                    } else {
+                        Style::default().fg(GREEN)
+                    };
+                    if is_selected_line {
+                        lines.push(Line::from(vec![
+                            Span::styled("▸ ", Style::default().fg(WATERMELON)),
+                            Span::styled(format!(" {line}"), style),
+                        ]));
+                    } else {
+                        lines.push(Line::from(Span::styled(format!("  {line}"), style)));
+                    }
+                }
+                if is_selected_block && selected_line_in_block.is_some() {
+                    let marker: String = "▸".repeat(12);
                     lines.push(Line::from(Span::styled(
-                        format!("  {line}"),
-                        Style::default().fg(GREEN),
+                        format!("  {marker}"),
+                        Style::default().fg(WATERMELON),
                     )));
                 }
+                code_block_idx += 1;
                 push_blank(&mut lines);
             }
             HelpBlock::Table { rows } => {
@@ -271,10 +364,8 @@ fn help_lines(view: &HelpView, example_index: usize) -> Vec<Line<'static>> {
             ),
         ]));
         if let Some(example) = view.examples.get(index) {
-            lines.push(Line::from(Span::styled(
-                format!("  {example}"),
-                Style::default().fg(GREEN),
-            )));
+            let text = format!("  {example}");
+            lines.push(Line::from(Span::styled(text, Style::default().fg(GREEN))));
         }
     }
 

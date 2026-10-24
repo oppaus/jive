@@ -31,6 +31,7 @@ pub(crate) struct HelpView {
     pub(crate) url: String,
     pub(crate) blocks: Vec<Block>,
     pub(crate) examples: Vec<String>,
+    pub(crate) block_code_count: usize,
 }
 
 impl HelpView {
@@ -48,12 +49,14 @@ impl HelpView {
             subtitle.push_str(" · ");
             subtitle.push_str(&page.dyad);
         }
+        let block_code_count = page.blocks.iter().filter(|b| matches!(b, Block::Code { .. })).count();
         Self {
             title: page.title.clone(),
             subtitle,
             url: page.url.clone(),
             blocks: page.blocks.clone(),
             examples: page.examples.clone(),
+            block_code_count,
         }
     }
 }
@@ -81,6 +84,7 @@ pub(crate) struct App {
     command_history: Vec<String>,
     history_index: Option<usize>,
     help_back: Vec<HelpView>,
+    help_forward: Vec<HelpView>,
     help_example_index: usize,
     help_index: Option<&'static HelpIndex>,
     help_error: Option<String>,
@@ -117,6 +121,7 @@ impl App {
             command_history: Vec::new(),
             history_index: None,
             help_back: Vec::new(),
+            help_forward: Vec::new(),
             help_example_index: 0,
             help_index,
             help_error,
@@ -256,6 +261,7 @@ impl App {
             KeyCode::End => self.help_scroll = u16::MAX,
             KeyCode::Backspace => self.help_back_page(),
             KeyCode::Char('b') | KeyCode::Char('B') => self.help_back_page(),
+            KeyCode::Char('f') | KeyCode::Char('F') => self.help_forward_page(),
             KeyCode::Char('e') | KeyCode::Char('E') => self.help_cycle_example(),
             KeyCode::Char('y') | KeyCode::Char('Y') => self.help_insert_example(),
             KeyCode::Char('o') | KeyCode::Char('O') => self.help_open_source(),
@@ -498,6 +504,9 @@ impl App {
             && let Some(current) = self.help.take()
         {
             self.help_back.push(current);
+            self.help_forward.clear();
+        } else if push_back {
+            self.help_forward.clear();
         }
         self.help = Some(view);
         self.help_scroll = 0;
@@ -509,17 +518,35 @@ impl App {
     fn close_help(&mut self) {
         self.help = None;
         self.help_back.clear();
+        self.help_forward.clear();
         self.help_scroll = 0;
         self.focus = Focus::Input;
     }
 
     fn help_back_page(&mut self) {
+        let Some(current) = self.help.take() else {
+            return;
+        };
         if let Some(previous) = self.help_back.pop() {
+            self.help_forward.push(current);
             self.help = Some(previous);
             self.help_scroll = 0;
             self.help_example_index = 0;
         } else {
-            self.close_help();
+            self.help = Some(current);
+        }
+    }
+
+    fn help_forward_page(&mut self) {
+        if let Some(current) = self.help.take() {
+            if let Some(next) = self.help_forward.pop() {
+                self.help_back.push(current);
+                self.help = Some(next);
+                self.help_scroll = 0;
+                self.help_example_index = 0;
+            } else {
+                self.help = Some(current);
+            }
         }
     }
 
@@ -527,20 +554,78 @@ impl App {
         let Some(view) = self.help.as_ref() else {
             return;
         };
-        if view.examples.is_empty() {
+        let count = if !view.examples.is_empty() {
+            view.examples.len()
+        } else if view.block_code_count > 0 {
+            view.block_code_count
+        } else {
+            0
+        };
+        if count == 0 {
             self.notice = Some("This page has no runnable examples.".to_string());
             return;
         }
-        let count = view.examples.len();
         self.help_example_index = (self.help_example_index + 1) % count;
+        self.help_scroll = self.help_scroll.saturating_add(12);
     }
 
     fn help_insert_example(&mut self) {
-        let example = self.help.as_ref().and_then(|view| {
-            view.examples
-                .get(self.help_example_index)
-                .cloned()
-        });
+        let (block_code_count, examples, blocks) = match &self.help {
+            Some(view) => (view.block_code_count, view.examples.clone(), view.blocks.clone()),
+            None => return,
+        };
+        let example = if !examples.is_empty() {
+            let idx = self.help_example_index.min(examples.len().saturating_sub(1));
+            if let Some(ex) = examples.get(idx) {
+                Some(ex.clone())
+            } else {
+                // fallback to block
+                let mut code_idx = 0;
+                let mut picked = None;
+                for block in &blocks {
+                    if let Block::Code { text } = block {
+                        let first = text
+                            .lines()
+                            .find(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with('+') && !t.starts_with('|')
+                            })
+                            .map(|l| l.trim().to_string())
+                            .or_else(|| text.lines().next().map(|l| l.trim_start().to_string()));
+                        if code_idx == idx % block_code_count.max(1) {
+                            picked = first;
+                            break;
+                        }
+                        code_idx += 1;
+                    }
+                }
+                picked
+            }
+        } else if block_code_count > 0 {
+            let idx = self.help_example_index.min(block_code_count.saturating_sub(1));
+            let mut code_idx = 0;
+            let mut picked = None;
+            for block in &blocks {
+                if let Block::Code { text } = block {
+                    if code_idx == idx {
+                        let first = text
+                            .lines()
+                            .find(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with('+') && !t.starts_with('|')
+                            })
+                            .map(|l| l.trim().to_string())
+                            .or_else(|| text.lines().next().map(|l| l.trim_start().to_string()));
+                        picked = first;
+                        break;
+                    }
+                    code_idx += 1;
+                }
+            }
+            picked
+        } else {
+            None
+        };
         let Some(example) = example else {
             self.notice = Some("This page has no runnable examples.".to_string());
             return;
@@ -667,6 +752,7 @@ impl App {
             url: String::new(),
             blocks,
             examples: Vec::new(),
+            block_code_count: 0,
         };
         self.show_view(view, true);
     }
@@ -750,16 +836,21 @@ impl App {
 
         if let Some(view) = &self.help {
             if self.focus == Focus::Help {
-                let examples = if view.examples.is_empty() {
-                    "no examples".to_string()
-                } else {
+                let examples = if !view.examples.is_empty() {
                     let index = self
                         .help_example_index
                         .min(view.examples.len().saturating_sub(1));
                     format!("example {}/{}", index + 1, view.examples.len())
+                } else if view.block_code_count > 0 {
+                    let index = self
+                        .help_example_index
+                        .min(view.block_code_count.saturating_sub(1));
+                    format!("example {}/{}", index + 1, view.block_code_count)
+                } else {
+                    "no examples".to_string()
                 };
                 return format!(
-                    "↑↓ scroll · PgUp/PgDn page · b back · e cycle ({examples}) · y insert · o source · Tab input · Esc close"
+                    "↑↓ scroll · PgUp/PgDn page · b back · f forward · e cycle ({examples}) · y insert · o source · Tab input · Esc close"
                 );
             }
             return "F1 close help · Ctrl+P search · Tab focus help · /help <topic>".to_string();
